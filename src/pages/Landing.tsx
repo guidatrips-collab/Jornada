@@ -2,6 +2,9 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { Play, QrCode, Sparkles, Tent, Home, Users, Briefcase } from 'lucide-react';
 import React, { useState } from 'react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useGameStore } from '../lib/store';
 
 const WORLDS = [
   { id: 'couple_trip', title: 'Viagem em Casal', desc: 'Arraial do Cabo', icon: Tent, color: 'from-amber-400 to-orange-500' },
@@ -22,10 +25,28 @@ export default function Landing() {
     }
   };
 
-  const handleCreateRoom = (worldId: string) => {
-    // In a real app, we'd create a room in Firestore and navigate there
+  const handleCreateRoom = async (worldId: string) => {
     const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    navigate(`/room/${newRoomCode}?world=${worldId}`);
+    
+    try {
+      const playerId = useGameStore.getState().playerId;
+      await setDoc(doc(db, 'rooms', newRoomCode), {
+        worldId,
+        status: 'waiting',
+        playerA: playerId,
+        playerPosA: 0,
+        playerPosB: 0,
+        turn: 'A',
+        diceValue: 1,
+        isRolling: false,
+        activeCard: null,
+        updatedAt: Date.now()
+      });
+      navigate(`/room/${newRoomCode}?world=${worldId}`);
+    } catch (error) {
+      console.error("Error creating room: ", error);
+      alert("Erro ao criar sala. Tente novamente.");
+    }
   };
 
   return (

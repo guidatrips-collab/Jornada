@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    function isValidRoom(data) {
+      return data.keys().hasAll(['worldId', 'status', 'playerA']) &&
+             data.worldId is string && data.worldId.size() <= 50 &&
+             data.status in ['waiting', 'playing', 'finished'] &&
+             data.playerA is string && data.playerA.size() <= 50 &&
+             (data.get('playerB', '') is string) &&
+             (data.get('playerPosA', 0) is number) &&
+             (data.get('playerPosB', 0) is number) &&
+             (data.get('turn', 'A') in ['A', 'B']) &&
+             (data.get('diceValue', 1) is number) &&
+             (data.get('isRolling', false) is bool);
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isValidId(roomId);
+      allow create: if isValidId(roomId) && isValidRoom(incoming());
+      allow update: if isValidId(roomId) && isValidRoom(incoming());
+    }
+  }
+}

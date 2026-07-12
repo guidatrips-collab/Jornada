@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "Room": {
+      "title": "Room",
+      "description": "A game room",
+      "type": "object",
+      "properties": {
+        "worldId": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "playing", "finished"] },
+        "playerA": { "type": "string" },
+        "playerB": { "type": "string" },
+        "playerPosA": { "type": "number" },
+        "playerPosB": { "type": "number" },
+        "turn": { "type": "string", "enum": ["A", "B"] },
+        "diceValue": { "type": "number" },
+        "isRolling": { "type": "boolean" },
+        "activeCard": { 
+          "type": "object", 
+          "properties": {
+            "id": { "type": "number" },
+            "type": { "type": "string" }
+          }
+        },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["worldId", "status", "playerA"]
+    }
+  },
+  "firestore": {
+    "rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Game rooms"
+    }
+  }
+}

@@ -2,51 +2,79 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Dices, Gift, HelpCircle, AlertTriangle, Zap, Map } from 'lucide-react';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useGameStore } from '../lib/store';
 
 const SPACES = Array.from({ length: 15 }).map((_, i) => {
   const types = ['quiz', 'challenge', 'luck', 'reward', 'mystery', 'neutral'];
-  // Ensure a mix of types for the demo
   const type = i === 0 ? 'start' : i === 14 ? 'end' : types[Math.floor(Math.random() * types.length)];
   return { id: i, type };
 });
 
 export default function GameBoard() {
   const { id } = useParams();
-  const [playerPos, setPlayerPos] = useState(0);
-  const [partnerPos, setPartnerPos] = useState(0);
-  const [isRolling, setIsRolling] = useState(false);
-  const [diceValue, setDiceValue] = useState(1);
-  const [activeCard, setActiveCard] = useState<any>(null);
+  const playerId = useGameStore(state => state.playerId);
+  const [roomData, setRoomData] = useState<any>(null);
 
-  const rollDice = () => {
-    if (isRolling) return;
-    setIsRolling(true);
+  useEffect(() => {
+    if (!id) return;
+    const unsub = onSnapshot(doc(db, 'rooms', id), (doc) => {
+      if (doc.exists()) {
+        setRoomData(doc.data());
+      }
+    });
+    return () => unsub();
+  }, [id]);
+
+  const isPlayerA = roomData?.playerA === playerId;
+  const isMyTurn = (roomData?.turn === 'A' && isPlayerA) || (roomData?.turn === 'B' && !isPlayerA);
+  
+  const myPos = isPlayerA ? roomData?.playerPosA : roomData?.playerPosB;
+  const partnerPos = isPlayerA ? roomData?.playerPosB : roomData?.playerPosA;
+  
+  const diceValue = roomData?.diceValue || 1;
+  const isRolling = roomData?.isRolling || false;
+  const activeCard = roomData?.activeCard || null;
+
+  const rollDice = async () => {
+    if (isRolling || !isMyTurn || !id) return;
     
-    // Fake dice roll animation
+    await updateDoc(doc(db, 'rooms', id), { isRolling: true });
+    
     let rolls = 0;
-    const interval = setInterval(() => {
-      setDiceValue(Math.floor(Math.random() * 6) + 1);
+    const interval = setInterval(async () => {
       rolls++;
       if (rolls > 10) {
         clearInterval(interval);
-        const finalValue = Math.floor(Math.random() * 3) + 1; // Move 1-3 spaces for demo
-        setDiceValue(finalValue);
-        setIsRolling(false);
-        movePlayer(finalValue);
+        const finalValue = Math.floor(Math.random() * 3) + 1; // 1 to 3 steps
+        const newPos = Math.min((myPos || 0) + finalValue, SPACES.length - 1);
+        
+        const updates: any = {
+          diceValue: finalValue,
+          isRolling: false,
+        };
+        
+        if (isPlayerA) updates.playerPosA = newPos;
+        else updates.playerPosB = newPos;
+        
+        if (newPos > 0 && newPos < SPACES.length - 1) {
+           updates.activeCard = SPACES[newPos];
+        } else {
+           updates.turn = isPlayerA ? 'B' : 'A';
+        }
+
+        await updateDoc(doc(db, 'rooms', id), updates);
       }
     }, 100);
   };
 
-  const movePlayer = (steps: number) => {
-    const newPos = Math.min(playerPos + steps, SPACES.length - 1);
-    setPlayerPos(newPos);
-    
-    // After move, show card
-    setTimeout(() => {
-      if (newPos > 0 && newPos < SPACES.length - 1) {
-        setActiveCard(SPACES[newPos]);
-      }
-    }, 1000);
+  const closeCard = async () => {
+    if (!id) return;
+    await updateDoc(doc(db, 'rooms', id), {
+      activeCard: null,
+      turn: isPlayerA ? 'B' : 'A'
+    });
   };
 
   const getCardColor = (type: string) => {
@@ -73,13 +101,11 @@ export default function GameBoard() {
 
   return (
     <div className="h-screen w-full bg-slate-950 flex flex-col relative overflow-hidden">
-      {/* Background World Details (Water, islands, etc.) */}
       <div className="absolute inset-0 opacity-40">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-[100px]" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-[100px]" />
       </div>
       
-      {/* Top Bar */}
       <header className="glass-panel w-full p-4 flex justify-between items-center z-20 sticky top-0 rounded-b-3xl">
         <div className="flex items-center gap-4">
           <h1 className="font-cursive text-3xl text-white">Jornada</h1>
@@ -95,22 +121,17 @@ export default function GameBoard() {
         </div>
       </header>
 
-      {/* Main Board Area */}
       <main className="flex-1 relative flex items-center justify-center p-8 z-10">
-        
-        {/* Simple track representation */}
         <div className="relative w-full max-w-5xl h-full flex items-center justify-center">
-           
            <svg width="100%" height="100%" className="absolute inset-0 pointer-events-none opacity-30">
-              {/* Fake curvy path */}
               <path d="M 100,200 C 300,50 600,350 900,200" fill="none" stroke="white" strokeWidth="4" strokeDasharray="10 10" />
            </svg>
 
            <div className="flex flex-wrap justify-center gap-4 relative z-10 max-w-3xl">
               {SPACES.map((space, idx) => {
                 const Icon = getCardIcon(space.type);
-                const isCurrent = playerPos === idx;
-                const isPartner = partnerPos === idx;
+                const isCurrent = myPos === idx;
+                const isPartnerAt = partnerPos === idx;
                 
                 return (
                   <motion.div 
@@ -126,24 +147,23 @@ export default function GameBoard() {
                      {space.type === 'start' && <span className="text-xs font-bold text-emerald-400">INÍCIO</span>}
                      {space.type === 'end' && <span className="text-xs font-bold text-amber-400">FIM</span>}
                      
-                     {/* Player Tokens */}
                      <AnimatePresence>
                        {isCurrent && (
                          <motion.div 
                            key="player-token"
                            layoutId="player-token"
-                           className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 shadow-[0_0_15px_rgba(249,115,22,0.6)] border-2 border-white flex items-center justify-center z-20"
+                           className={`absolute -top-3 -right-3 w-8 h-8 rounded-full bg-gradient-to-br ${isPlayerA ? 'from-orange-400 to-rose-500' : 'from-blue-400 to-indigo-500'} shadow-[0_0_15px_rgba(249,115,22,0.6)] border-2 border-white flex items-center justify-center z-20`}
                          >
-                           <span className="text-xs font-bold text-white">A</span>
+                           <span className="text-xs font-bold text-white">{isPlayerA ? 'A' : 'B'}</span>
                          </motion.div>
                        )}
-                       {isPartner && (
+                       {isPartnerAt && (
                          <motion.div 
                            key="partner-token"
                            layoutId="partner-token"
-                           className="absolute -bottom-3 -left-3 w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 shadow-[0_0_15px_rgba(59,130,246,0.6)] border-2 border-white flex items-center justify-center z-10"
+                           className={`absolute -bottom-3 -left-3 w-8 h-8 rounded-full bg-gradient-to-br ${isPlayerA ? 'from-blue-400 to-indigo-500' : 'from-orange-400 to-rose-500'} shadow-[0_0_15px_rgba(59,130,246,0.6)] border-2 border-white flex items-center justify-center z-10`}
                          >
-                           <span className="text-xs font-bold text-white">B</span>
+                           <span className="text-xs font-bold text-white">{isPlayerA ? 'B' : 'A'}</span>
                          </motion.div>
                        )}
                      </AnimatePresence>
@@ -151,18 +171,15 @@ export default function GameBoard() {
                 )
               })}
            </div>
-
         </div>
-
       </main>
 
-      {/* Bottom Controls */}
       <footer className="p-8 flex justify-center z-20">
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={rollDice}
-          disabled={isRolling || activeCard !== null}
+          disabled={!isMyTurn || isRolling || activeCard !== null}
           className="glass-panel relative group rounded-3xl p-4 pr-8 flex items-center gap-6 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-orange-500/20 to-rose-500/20 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -175,12 +192,11 @@ export default function GameBoard() {
           </div>
           <div className="text-left relative z-10">
             <h3 className="font-display font-bold text-xl text-white">Girar Dado</h3>
-            <p className="text-orange-400 text-sm">É a sua vez!</p>
+            <p className="text-orange-400 text-sm">{isMyTurn ? 'É a sua vez!' : 'Aguarde o parceiro...'}</p>
           </div>
         </motion.button>
       </footer>
 
-      {/* Active Card Modal */}
       <AnimatePresence>
         {activeCard && (
           <motion.div 
@@ -220,18 +236,24 @@ export default function GameBoard() {
                   </p>
                 </div>
 
-                <button 
-                  onClick={() => setActiveCard(null)}
-                  className="mt-6 w-full py-4 rounded-xl bg-white text-slate-900 font-bold hover:bg-slate-200 transition-colors"
-                >
-                  Continuar
-                </button>
+                {isMyTurn && (
+                  <button 
+                    onClick={closeCard}
+                    className="mt-6 w-full py-4 rounded-xl bg-white text-slate-900 font-bold hover:bg-slate-200 transition-colors"
+                  >
+                    Continuar
+                  </button>
+                )}
+                {!isMyTurn && (
+                  <div className="mt-6 text-slate-400 text-sm">
+                    Aguardando o parceiro...
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
