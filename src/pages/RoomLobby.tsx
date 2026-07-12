@@ -26,7 +26,7 @@ export default function RoomLobby() {
 
         <div className="bg-white p-4 rounded-2xl inline-block mb-8 shadow-xl">
           <QRCodeSVG 
-            value={`https://app.jornada.com/join/${id}`} 
+            value={`${window.location.origin}/room/${id}`} 
             size={200}
             fgColor="#0f172a"
           />
